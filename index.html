@@ -1,0 +1,642 @@
+<!DOCTYPE html>
+<html lang="zh-HK">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>魚類編號與交收管理系統</title>
+  <!-- 引入 Supabase JS SDK -->
+  <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+  <style>
+    :root { --primary: #0077b6; --danger: #e63946; --warning: #ffb703; --success: #38b000; --profit: #2a9d8f; }
+    * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
+    
+    body { 
+      background-image: linear-gradient(rgba(244, 247, 246, 0.85), rgba(244, 247, 246, 0.85)), url('bg.jpg');
+      background-size: cover;
+      background-position: center;
+      background-attachment: fixed;
+      background-repeat: no-repeat;
+      padding: 12px; 
+      margin: 0; 
+      color: #333; 
+    }
+    
+    .container { max-width: 1000px; margin: 0 auto; }
+    h1 { color: #0077b6; margin-top: 0; font-size: 22px; text-align: center; }
+    h3 { color: #0077b6; margin-top: 0; font-size: 16px; }
+    
+    /* 頁籤 Tab 樣式 */
+    .tabs-nav { display: flex; gap: 6px; margin-bottom: 15px; border-bottom: 2px solid #ccc; padding-bottom: 0; }
+    .tab-btn { flex: 1; background: #e0e0e0; border: none; padding: 10px 8px; border-radius: 8px 8px 0 0; cursor: pointer; font-size: 13px; font-weight: bold; color: #555; text-align: center; transition: all 0.2s; }
+    .tab-btn.active { background: var(--primary); color: white; }
+
+    .tab-content { display: none; }
+    .tab-content.active { display: block; }
+
+    .dashboard { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 15px; }
+    .card { background: white; padding: 15px; border-radius: 8px; box-shadow: 0 2px 5px rgba(0,0,0,0.08); margin-bottom: 15px; }
+    .card-today { border-left: 5px solid var(--primary); }
+    .card-blacklist { border-left: 5px solid var(--danger); }
+    .card-profit { border-left: 5px solid var(--profit); background: #f0fdf4; }
+    
+    .stat-val { font-size: 20px; font-weight: bold; color: #111; margin-top: 5px; }
+    .stat-sub { font-size: 13px; color: #666; margin-top: 3px; }
+
+    .main-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; }
+    
+    .form-group { display: flex; flex-direction: column; gap: 10px; }
+    .form-row { display: flex; gap: 8px; }
+    input, select { padding: 10px; border: 1px solid #ccc; border-radius: 4px; font-size: 14px; width: 100%; }
+    button { background-color: var(--primary); color: white; border: none; padding: 10px 12px; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; }
+    button:hover { opacity: 0.9; }
+    .btn-danger { background-color: var(--danger); }
+    .btn-warning { background-color: var(--warning); color: #000; }
+    .btn-success { background-color: var(--success); }
+
+    .calendar-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .calendar-grid { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; text-align: center; }
+    .cal-day-name { font-weight: bold; padding: 4px; background: #e0f2fe; border-radius: 4px; font-size: 12px; }
+    .cal-cell { padding: 4px; border: 1px solid #ddd; min-height: 40px; border-radius: 4px; cursor: pointer; background: white; position: relative; font-size: 12px; }
+    .cal-cell.has-order { background-color: #e0f2fe; border-color: var(--primary); font-weight: bold; }
+    .cal-cell.today { border: 2px solid var(--primary); background-color: #fef08a; }
+    .badge { position: absolute; bottom: 2px; right: 2px; background: var(--primary); color: white; border-radius: 50%; width: 16px; height: 16px; font-size: 9px; display: flex; align-items: center; justify-content: center; }
+
+    /* 表格與響應式轉換 */
+    .table-container { width: 100%; overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 10px; background: white; border-radius: 8px; overflow: hidden; box-shadow: 0 2px 5px rgba(0,0,0,0.08); }
+    th, td { border: 1px solid #eee; padding: 8px; text-align: left; font-size: 13px; }
+    th { background-color: var(--primary); color: white; }
+    th.sortable { cursor: pointer; user-select: none; }
+
+    tr.status-cancelled { background-color: #ffe3e3; opacity: 0.7; }
+    .alert-banner { background-color: #ffdda1; border: 1px solid var(--warning); padding: 10px; border-radius: 4px; margin-bottom: 10px; display: none; color: #856404; font-weight: bold; font-size: 13px; }
+    .tag-profit { color: var(--profit); font-weight: bold; }
+    .tag-loss { color: var(--danger); font-weight: bold; }
+
+    /* 手機端專屬 Sorting 選單控制項 */
+    .mobile-sort-bar { display: none; gap: 8px; margin-bottom: 10px; align-items: center; }
+
+    /* 📱 手機端專屬適應 (Mobile Optimization) */
+    @media (max-width: 768px) {
+      body { padding: 8px; }
+      .main-grid { grid-template-columns: 1fr; }
+      .tabs-nav { flex-wrap: wrap; }
+      .tab-btn { font-size: 12px; padding: 8px 4px; }
+      
+      /* 顯示手機版排序選擇器 */
+      .mobile-sort-bar { display: flex; }
+
+      /* 將表格改為卡片式排列 */
+      .responsive-table th { display: none; }
+      .responsive-table tr { display: block; border: 1px solid #ddd; margin-bottom: 10px; border-radius: 6px; background: #fff; padding: 8px; }
+      .responsive-table td { display: flex; justify-content: space-between; align-items: center; border: none; border-bottom: 1px dashed #eee; padding: 6px 0; font-size: 13px; }
+      .responsive-table td:last-child { border-bottom: none; }
+      .responsive-table td::before { content: attr(data-label); font-weight: bold; color: #666; margin-right: 10px; }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <h1>🐟 魚類管理系統</h1>
+
+    <div class="tabs-nav">
+      <button class="tab-btn active" onclick="switchTab(0)">⏳ 進行中 & 日曆</button>
+      <button class="tab-btn" onclick="switchTab(1)">🐟 上架 & Mark單</button>
+      <button class="tab-btn" onclick="switchTab(2)">📋 財務與歷史</button>
+    </div>
+
+    <!-- TAG 1: 交易進行中 & 日曆 -->
+    <div class="tab-content active">
+      <div class="dashboard">
+        <div class="card card-today">
+          <h3>📅 今日交收提醒 (<span id="todayCount">0</span> 單)</h3>
+          <div id="todayList" style="font-size: 13px; margin-top: 5px;">載入中...</div>
+        </div>
+        <div class="card card-blacklist">
+          <h3>⚠️ 黑名單預警 (取消≥3次)</h3>
+          <div id="blacklistSummary" style="font-size: 13px; margin-top: 5px;">載入中...</div>
+        </div>
+      </div>
+
+      <div class="main-grid">
+        <div class="card">
+          <div class="calendar-header">
+            <button onclick="changeMonth(-1)">&lt;</button>
+            <h3 id="calendarMonthYear" style="margin:0;"></h3>
+            <button onclick="changeMonth(1)">&gt;</button>
+          </div>
+          <div class="calendar-grid">
+            <div class="cal-day-name">日</div><div class="cal-day-name">一</div><div class="cal-day-name">二</div>
+            <div class="cal-day-name">三</div><div class="cal-day-name">四</div><div class="cal-day-name">五</div><div class="cal-day-name">六</div>
+          </div>
+          <div class="calendar-grid" id="calendarGrid" style="margin-top:5px;"></div>
+        </div>
+
+        <div class="card">
+          <h3>⏳ 交易進行中</h3>
+          <div class="table-container">
+            <table class="responsive-table">
+              <thead>
+                <tr>
+                  <th>魚編號及名稱</th>
+                  <th>買家電話</th>
+                  <th>交收時間 / 地點</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="pendingOrdersBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- TAG 2: 魚類上架與 Mark 單 -->
+    <div class="tab-content">
+      <div class="main-grid">
+        
+        <div class="card">
+          <h3>🐟 魚類上架</h3>
+          <form onsubmit="addFish(event)" style="margin-bottom: 15px;">
+            <div class="form-group">
+              <div class="form-row">
+                <input type="text" id="newFishCode" placeholder="魚編號 (如 F001)" required>
+                <input type="text" id="newFishName" placeholder="名稱" required>
+              </div>
+              <div class="form-row">
+                <input type="number" id="newFishPrice" placeholder="標價 ($)" min="0" step="0.1" required>
+                <input type="number" id="newFishCost" placeholder="成本 ($)" min="0" step="0.1" required>
+              </div>
+              <button type="submit">上架此魚</button>
+            </div>
+          </form>
+
+          <div class="table-container">
+            <table class="responsive-table">
+              <thead>
+                <tr>
+                  <th>編號/名稱</th>
+                  <th>標價 / 成本</th>
+                  <th>預計利潤</th>
+                  <th>操作</th>
+                </tr>
+              </thead>
+              <tbody id="fishListBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <div class="card">
+          <h3 id="formTitle">📝 Mark 交收訂單</h3>
+          <div id="blacklistAlert" class="alert-banner">⚠️ 警告：此電話已取消過 <span id="cancelTimes">0</span> 次！</div>
+          
+          <form id="orderForm" onsubmit="saveOrder(event)">
+            <input type="hidden" id="editId" value="">
+            <input type="hidden" id="selectedFishId" value="">
+            <div class="form-group">
+              <input type="text" id="fishCodeAndName" placeholder="點擊『+ Mark 交收』帶入" readonly style="background-color: #f0f0f0; font-weight: bold;" required>
+              
+              <div class="form-row">
+                <div>
+                  <label style="font-size:11px; color:#666;">成交售價 ($)</label>
+                  <input type="number" id="finalPrice" placeholder="成交價" step="0.1" required>
+                </div>
+                <div>
+                  <label style="font-size:11px; color:#666;">成本 ($)</label>
+                  <input type="number" id="orderCost" placeholder="成本" step="0.1" required>
+                </div>
+              </div>
+
+              <input type="tel" id="phone" placeholder="買家電話號碼" oninput="checkPhoneBlacklist()" required>
+              <input type="datetime-local" id="pickupDateTime" required>
+              <input type="text" id="location" placeholder="交收地點 (例: 旺角站 B出口)" required>
+              <button type="submit" id="submitBtn">確定 Mark 交收</button>
+              <button type="button" onclick="resetForm()" class="btn-warning" style="display:none;" id="cancelEditBtn">取消編輯</button>
+            </div>
+          </form>
+        </div>
+
+      </div>
+    </div>
+
+    <!-- TAG 3: 財務與歷史記錄 -->
+    <div class="tab-content">
+      <div class="card card-profit">
+        <h3 style="color: var(--profit);">💰 財務與淨利統計 (已完成)</h3>
+        <div class="stat-val" id="netProfitVal">$0</div>
+        <div class="stat-sub">總營業額: <span id="totalRevenueVal">$0</span> | 總成本: <span id="totalCostVal">$0</span></div>
+      </div>
+
+      <div class="card">
+        <h3>📋 所有交收記錄</h3>
+
+        <!-- 📱 手機版專用排序選單 -->
+        <div class="mobile-sort-bar">
+          <span style="font-size:12px; font-weight:bold; white-space:nowrap;">排序方式：</span>
+          <select id="mobileSortSelect" onchange="handleMobileSortChange()">
+            <option value="date_time">交收時間</option>
+            <option value="profit">單筆淨利</option>
+            <option value="final_price">成交價</option>
+            <option value="fish_info">魚名稱</option>
+            <option value="status">狀態</option>
+          </select>
+          <button type="button" id="mobileSortOrderBtn" onclick="toggleMobileSortOrder()" style="padding:8px 10px; font-size:12px;">▼ 降序</button>
+        </div>
+
+        <div class="table-container">
+          <table class="responsive-table">
+            <thead>
+              <tr>
+                <th class="sortable" onclick="sortTable('fish_info')">魚編號名稱 <span id="sort_fish_info"></span></th>
+                <th class="sortable" onclick="sortTable('final_price')">成交價/成本 <span id="sort_final_price"></span></th>
+                <th class="sortable" onclick="sortTable('profit')">淨利 <span id="sort_profit"></span></th>
+                <th class="sortable" onclick="sortTable('date_time')">時間/地點 <span id="sort_date_time">▼</span></th>
+                <th class="sortable" onclick="sortTable('status')">狀態 <span id="sort_status"></span></th>
+              </tr>
+            </thead>
+            <tbody id="orderTableBody"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <script>
+    const SUPABASE_URL = 'https://dvjkaufdajtlmfundbz.supabase.co';
+    const SUPABASE_KEY = 'sb_publishable_9kPIKY3hk0hZilRA0V7b7Q_5yplk1tL';
+    const supabaseClient = supabase.createClient(SUPABASE_URL, SUPABASE_KEY);
+
+    let fishList = [];
+    let orders = [];
+    let currentCalDate = new Date();
+
+    let currentSortField = 'date_time';
+    let isAscending = false;
+
+    function switchTab(index) {
+      const buttons = document.querySelectorAll('.tab-btn');
+      const contents = document.querySelectorAll('.tab-content');
+      buttons.forEach((btn, i) => {
+        btn.classList.toggle('active', i === index);
+        contents[i].classList.toggle('active', i === index);
+      });
+    }
+
+    function getHKDateString(dateObj = new Date()) {
+      const year = dateObj.getFullYear();
+      const month = String(dateObj.getMonth() + 1).padStart(2, '0');
+      const day = String(dateObj.getDate()).padStart(2, '0');
+      return `${year}-${month}-${day}`;
+    }
+
+    async function loadData() {
+      const { data: fishData } = await supabaseClient.from('fish_list').select('*').order('id', { ascending: true });
+      const { data: orderData } = await supabaseClient.from('fish_orders').select('*').order('id', { ascending: false });
+      
+      fishList = fishData || [];
+      orders = orderData || [];
+      renderAll();
+    }
+
+    async function addFish(e) {
+      e.preventDefault();
+      const code = document.getElementById('newFishCode').value.trim();
+      const name = document.getElementById('newFishName').value.trim();
+      const price = parseFloat(document.getElementById('newFishPrice').value) || 0;
+      const cost = parseFloat(document.getElementById('newFishCost').value) || 0;
+
+      if (fishList.some(f => f.code === code)) {
+        alert('魚編號重複！請更換編號。');
+        return;
+      }
+
+      const { error } = await supabaseClient.from('fish_list').insert([{ code, name, price, cost }]);
+      if (error) alert('新增失敗: ' + error.message);
+      else {
+        document.getElementById('newFishCode').value = '';
+        document.getElementById('newFishName').value = '';
+        document.getElementById('newFishPrice').value = '';
+        document.getElementById('newFishCost').value = '';
+        loadData();
+      }
+    }
+
+    async function deleteFish(id) {
+      if (confirm('確定刪除此上架魚類？')) {
+        await supabaseClient.from('fish_list').delete().eq('id', id);
+        loadData();
+      }
+    }
+
+    function startPickup(id, code, name, price, cost) {
+      document.getElementById('selectedFishId').value = id;
+      document.getElementById('fishCodeAndName').value = `[${code}] ${name}`;
+      document.getElementById('finalPrice').value = price;
+      document.getElementById('orderCost').value = cost;
+      document.getElementById('phone').focus();
+    }
+
+    function renderFishList() {
+      const tbody = document.getElementById('fishListBody');
+      tbody.innerHTML = '';
+      
+      const pendingFishInfos = orders.filter(o => o.status === '進行中').map(o => o.fish_info);
+
+      fishList.forEach(item => {
+        const fishFullStr = `[${item.code}] ${item.name}`;
+        if (pendingFishInfos.includes(fishFullStr)) return;
+
+        const estProfit = (item.price || 0) - (item.cost || 0);
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td data-label="編號/名稱"><strong>[${item.code}]</strong> ${item.name}</td>
+          <td data-label="標價/成本">標:$${item.price || 0} / 成:$${item.cost || 0}</td>
+          <td data-label="預計利潤" class="${estProfit >= 0 ? 'tag-profit' : 'tag-loss'}">$${estProfit}</td>
+          <td data-label="操作">
+            <button onclick="startPickup(${item.id}, '${item.code}', '${item.name}', ${item.price || 0}, ${item.cost || 0})" class="btn-success" style="padding:4px 8px; font-size:12px;">+ Mark 交收</button>
+            <button onclick="deleteFish(${item.id})" class="btn-danger" style="padding:4px 8px; font-size:12px;">刪</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function checkPhoneBlacklist() {
+      const phoneInput = document.getElementById('phone').value.trim();
+      const alertBox = document.getElementById('blacklistAlert');
+      if (!phoneInput) { alertBox.style.display = 'none'; return; }
+
+      const cancelCount = orders.filter(o => o.phone === phoneInput && o.status === '已取消').length;
+      if (cancelCount > 2) {
+        document.getElementById('cancelTimes').innerText = cancelCount;
+        alertBox.style.display = 'block';
+      } else {
+        alertBox.style.display = 'none';
+      }
+    }
+
+    async function saveOrder(e) {
+      e.preventDefault();
+      const editId = document.getElementById('editId').value;
+      const orderData = {
+        fish_info: document.getElementById('fishCodeAndName').value,
+        final_price: parseFloat(document.getElementById('finalPrice').value) || 0,
+        cost: parseFloat(document.getElementById('orderCost').value) || 0,
+        phone: document.getElementById('phone').value.trim(),
+        date_time: document.getElementById('pickupDateTime').value,
+        location: document.getElementById('location').value.trim(),
+        status: '進行中'
+      };
+
+      if (!editId) {
+        await supabaseClient.from('fish_orders').insert([orderData]);
+      } else {
+        await supabaseClient.from('fish_orders').update(orderData).eq('id', editId);
+      }
+
+      resetForm();
+      loadData();
+      switchTab(0);
+    }
+
+    async function completeOrder(id) {
+      await supabaseClient.from('fish_orders').update({ status: '已完成' }).eq('id', id);
+      loadData();
+    }
+
+    async function rollbackOrder(id) {
+      if (confirm('確定要取消此交易？取消後將不保留此紀錄，並重新上架該魚類。')) {
+        await supabaseClient.from('fish_orders').delete().eq('id', id);
+        loadData();
+      }
+    }
+
+    function editOrder(id) {
+      const item = orders.find(o => o.id === id);
+      document.getElementById('editId').value = item.id;
+      document.getElementById('fishCodeAndName').value = item.fish_info;
+      document.getElementById('finalPrice').value = item.final_price || 0;
+      document.getElementById('orderCost').value = item.cost || 0;
+      document.getElementById('phone').value = item.phone;
+      document.getElementById('pickupDateTime').value = item.date_time;
+      document.getElementById('location').value = item.location;
+
+      document.getElementById('formTitle').innerText = '✏️ 修改交收資料';
+      document.getElementById('submitBtn').innerText = '更新交收';
+      document.getElementById('cancelEditBtn').style.display = 'inline-block';
+      checkPhoneBlacklist();
+      switchTab(1);
+    }
+
+    function resetForm() {
+      document.getElementById('orderForm').reset();
+      document.getElementById('editId').value = '';
+      document.getElementById('selectedFishId').value = '';
+      document.getElementById('formTitle').innerText = '📝 Mark 交收訂單';
+      document.getElementById('submitBtn').innerText = '確定 Mark 交收';
+      document.getElementById('cancelEditBtn').style.display = 'none';
+      document.getElementById('blacklistAlert').style.display = 'none';
+    }
+
+    function renderAll() {
+      renderFishList();
+      renderPendingOrders();
+      renderOrders();
+      renderFinancialsAndDashboard();
+      renderCalendar();
+      updateBlacklistSummary();
+    }
+
+    function renderPendingOrders() {
+      const tbody = document.getElementById('pendingOrdersBody');
+      tbody.innerHTML = '';
+      const pendingList = orders.filter(o => o.status === '進行中');
+
+      if (pendingList.length === 0) {
+        tbody.innerHTML = '<tr><td colspan="4" style="text-align:center; color:#888;">暫無進行中交易</td></tr>';
+        return;
+      }
+
+      pendingList.forEach(item => {
+        const tr = document.createElement('tr');
+        tr.innerHTML = `
+          <td data-label="魚名稱"><strong>${item.fish_info}</strong></td>
+          <td data-label="買家電話">📞 ${item.phone}</td>
+          <td data-label="時間地點">${item.date_time.replace('T', ' ')} (${item.location})</td>
+          <td data-label="操作" style="gap:4px; display:flex;">
+            <button onclick="completeOrder(${item.id})" class="btn-success" style="padding:4px 8px; font-size:11px;">完成</button>
+            <button onclick="editOrder(${item.id})" class="btn-warning" style="padding:4px 8px; font-size:11px;">改</button>
+            <button onclick="rollbackOrder(${item.id})" class="btn-danger" style="padding:4px 8px; font-size:11px;">取消</button>
+          </td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function renderFinancialsAndDashboard() {
+      const completedOrders = orders.filter(o => o.status === '已完成');
+      const totalRevenue = completedOrders.reduce((sum, o) => sum + (o.final_price || 0), 0);
+      const totalCost = completedOrders.reduce((sum, o) => sum + (o.cost || 0), 0);
+      const netProfit = totalRevenue - totalCost;
+
+      document.getElementById('netProfitVal').innerText = `$${netProfit.toFixed(1)}`;
+      document.getElementById('totalRevenueVal').innerText = `$${totalRevenue.toFixed(1)}`;
+      document.getElementById('totalCostVal').innerText = `$${totalCost.toFixed(1)}`;
+
+      const todayStr = getHKDateString(new Date());
+      const todayOrders = orders.filter(o => o.date_time.startsWith(todayStr) && o.status !== '已取消');
+      document.getElementById('todayCount').innerText = todayOrders.length;
+      const container = document.getElementById('todayList');
+      if (todayOrders.length === 0) {
+        container.innerHTML = '今日沒有預約交收';
+      } else {
+        container.innerHTML = todayOrders.map(o => `
+          <div style="margin-bottom:6px; padding-bottom:4px; border-bottom:1px dashed #ccc;">
+            <strong>${o.fish_info}</strong> (${o.date_time.split('T')[1]})<br>
+            📍 ${o.location} | 📞 ${o.phone}
+          </div>
+        `).join('');
+      }
+    }
+
+    // 電腦版點擊標題排序
+    function sortTable(field) {
+      if (currentSortField === field) {
+        isAscending = !isAscending;
+      } else {
+        currentSortField = field;
+        isAscending = true;
+      }
+      syncMobileSortControls();
+      renderOrders();
+    }
+
+    // 手機版選單切換欄位
+    function handleMobileSortChange() {
+      currentSortField = document.getElementById('mobileSortSelect').value;
+      renderOrders();
+    }
+
+    // 手機版切換升/降序
+    function toggleMobileSortOrder() {
+      isAscending = !isAscending;
+      document.getElementById('mobileSortOrderBtn').innerText = isAscending ? '▲ 升序' : '▼ 降序';
+      renderOrders();
+    }
+
+    // 同步手機控制項狀態
+    function syncMobileSortControls() {
+      const select = document.getElementById('mobileSortSelect');
+      const btn = document.getElementById('mobileSortOrderBtn');
+      if (select) select.value = currentSortField;
+      if (btn) btn.innerText = isAscending ? '▲ 升序' : '▼ 降序';
+    }
+
+    function renderOrders() {
+      const tbody = document.getElementById('orderTableBody');
+      tbody.innerHTML = '';
+
+      ['fish_info', 'final_price', 'profit', 'date_time', 'status'].forEach(f => {
+        const el = document.getElementById(`sort_${f}`);
+        if (el) el.innerText = '';
+      });
+
+      const currentSortEl = document.getElementById(`sort_${currentSortField}`);
+      if (currentSortEl) {
+        currentSortEl.innerText = isAscending ? '▲' : '▼';
+      }
+
+      let sortedOrders = [...orders];
+
+      sortedOrders.sort((a, b) => {
+        let valA, valB;
+
+        if (currentSortField === 'profit') {
+          valA = (a.final_price || 0) - (a.cost || 0);
+          valB = (b.final_price || 0) - (b.cost || 0);
+        } else {
+          valA = a[currentSortField] || '';
+          valB = b[currentSortField] || '';
+        }
+
+        if (valA < valB) return isAscending ? -1 : 1;
+        if (valA > valB) return isAscending ? 1 : -1;
+        return 0;
+      });
+
+      sortedOrders.forEach(item => {
+        const profit = (item.final_price || 0) - (item.cost || 0);
+        const tr = document.createElement('tr');
+        if (item.status === '已取消') tr.className = 'status-cancelled';
+        tr.innerHTML = `
+          <td data-label="魚名稱"><strong>${item.fish_info}</strong><br><small style="color:#666;">📞 ${item.phone}</small></td>
+          <td data-label="售/本">售: $${item.final_price || 0} / 本: $${item.cost || 0}</td>
+          <td data-label="淨利" class="${profit >= 0 ? 'tag-profit' : 'tag-loss'}">$${profit}</td>
+          <td data-label="時間地點">${item.date_time.replace('T', ' ')}<br><small style="color:#666;">${item.location}</small></td>
+          <td data-label="狀態"><strong>${item.status}</strong></td>
+        `;
+        tbody.appendChild(tr);
+      });
+    }
+
+    function updateBlacklistSummary() {
+      const phoneCounts = {};
+      orders.forEach(o => {
+        if (o.status === '已取消') {
+          phoneCounts[o.phone] = (phoneCounts[o.phone] || 0) + 1;
+        }
+      });
+
+      const blacklisted = Object.keys(phoneCounts).filter(p => phoneCounts[p] > 2);
+      const box = document.getElementById('blacklistSummary');
+      if (blacklisted.length === 0) {
+        box.innerHTML = '<span style="color:var(--success);">無黑名單記錄</span>';
+      } else {
+        box.innerHTML = blacklisted.map(p => `⚠️ <strong style="color:var(--danger);">${p}</strong> (取消 ${phoneCounts[p]} 次)`).join('<br>');
+      }
+    }
+
+    function renderCalendar() {
+      const year = currentCalDate.getFullYear();
+      const month = currentCalDate.getMonth();
+      document.getElementById('calendarMonthYear').innerText = `${year}年 ${month + 1}月`;
+      const firstDay = new Date(year, month, 1).getDay();
+      const lastDate = new Date(year, month + 1, 0).getDate();
+      const grid = document.getElementById('calendarGrid');
+      grid.innerHTML = '';
+
+      for (let i = 0; i < firstDay; i++) grid.appendChild(document.createElement('div'));
+
+      const todayStr = getHKDateString(new Date());
+
+      for (let day = 1; day <= lastDate; day++) {
+        const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+        const dayOrders = orders.filter(o => o.date_time.startsWith(dateStr) && o.status !== '已取消');
+        
+        const cell = document.createElement('div');
+        cell.className = 'cal-cell';
+        if (dateStr === todayStr) cell.classList.add('today');
+        if (dayOrders.length > 0) cell.classList.add('has-order');
+        cell.innerHTML = `<div>${day}</div>`;
+        if (dayOrders.length > 0) cell.innerHTML += `<div class="badge">${dayOrders.length}</div>`;
+        
+        cell.onclick = () => {
+          if(dayOrders.length > 0) {
+            alert(`${dateStr} 交收細節：\n` + dayOrders.map(o => `• ${o.fish_info} | 成交價:$${o.final_price} | ${o.date_time.split('T')[1]} ${o.location} (${o.phone}) [${o.status}]`).join('\n'));
+          }
+        };
+        grid.appendChild(cell);
+      }
+    }
+
+    function changeMonth(delta) {
+      currentCalDate.setMonth(currentCalDate.getMonth() + delta);
+      renderCalendar();
+    }
+
+    loadData();
+  </script>
+</body>
+</html>
